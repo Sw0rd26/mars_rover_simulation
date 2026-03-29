@@ -372,13 +372,9 @@ function updatePhysics(dt) {
             assistActive = true;
             if (throttle < 0) rearBrake = true;
             
-            // If heading into a hazard, reduce speed and prioritize AI escape vector
-            if (throttle > 0) {
-                throttle *= 0.2; // Slow to a crawl
-                if (override) steering = aiSteering; // Manual override forces AI dodge path
-            } else if (throttle < 0) {
-                throttle = 0.0; // Emergency Rear Brake
-            }
+            // HAZARD DETECTED: Kill all user momentum and force the AI's safe steering vector
+            throttle = 0.0; 
+            steering = aiSteering; // Force intelligent escape even in manual mode
         }
 
         if (!isBlocked) {
