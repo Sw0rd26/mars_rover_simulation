@@ -401,7 +401,7 @@ function updatePhysics(dt) {
     let state = ws && ws.readyState === WebSocket.OPEN ? "Bağlandı" : "Bağlantı kesildi (Server'ı Başlat.";
     let hudText = `<h2>MARS ROVER SİSTEMİ</h2><p>Bağlantı: ${state}\nHareket: ${throttle.toFixed(2)}\nDönüş: ${(-steering).toFixed(2)}\nSürüş Sistemi: ${override ? 'Manuel (WASD)' : 'OTOPİLOT (Otonom Yapay Zeka)'}`;
 
-    if (assistActive) {
+    if (assistActive && override) {
         hudText += `<br><span style="color:#ff3333; font-weight:bold;">⚠️ KAZA ÖNLEYİCİ SİSTEM DEVREDE!</span>`;
         if (rearBrake) hudText += `<br><span style="color:#ffaa00;">Sistem aracın geriye doğru hareketini durdurdu.</span>`;
     }
