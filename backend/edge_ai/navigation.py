@@ -1,83 +1,63 @@
 import random
-import math
 
 class EdgeAIAgent:
     def __init__(self):
-        self.state = "FORWARD"
-        self.locked_gap_angle = 0
-        self.dodge_timer = 0
-        self.side_preference = 1.0 # 1 for Right, -1 for Left
+        self.last_steering = 0.0
 
     def calculate_drive_command(self, lidar_data: list) -> dict:
         if not lidar_data:
             return {"throttle": 0.0, "steering": 0.0}
 
-        # Constants for smooth alignment
-        STEERING_SENSITIVITY = 0.8 # Proportional gain
-        DODGE_TRIGGER_DIST = 9.0
-        DODGE_EXIT_DIST = 14.0
+        # Constants for 'Snap-to-Safe-Path' logic
+        SAFE_THRESHOLD = 12.0 # Requirement: Ensure path is safe for at least 12m
+        DANGER_ZONE = 10.0    # Requirement: Dodge when objects get in this range
         
-        # 1. SCAN FOR HAZARDS
-        # Look in a 40-degree front cone
-        front_dist = min([r['distance'] for r in lidar_data if abs(r['angle']) <= 20] + [15.0])
-
-        # STATE 1: DODGING (Committed to a specific gap)
-        if self.state == "DODGE":
-            self.dodge_timer += 1
-            
-            # Check if the path directly in front is now 'Bone Clear'
-            if front_dist > DODGE_EXIT_DIST or self.dodge_timer > 100:
-                self.state = "FORWARD"
-                self.dodge_timer = 0
-                return {"throttle": 1.0, "steering": 0.0}
-
-            # PROPORTIONAL STEERING: Turn toward the locked gap angle
-            # The further the angle, the harder we turn. As we align, we slow the turn.
-            # This prevents 'Violent Spinning' and 'Overshooting'.
-            error = self.locked_gap_angle
-            steering = (error / 90.0) * STEERING_SENSITIVITY
-            
-            # Clamp steering for stability
-            steering = max(-1.0, min(1.0, steering))
-            
-            return {"throttle": 0.5, "steering": steering}
-
-        # STATE 2: FORWARD (Scanning for the next best path)
+        # 1. EVALUATE ALL PATHS (360 Degrees)
+        all_rays = lidar_data
+        safe_rays = [r for r in all_rays if r['distance'] >= SAFE_THRESHOLD]
+        
+        # 2. DECIDE BEST VECTOR
+        best_angle = 0
+        if safe_rays:
+            # Pick the safe sector that is CLOSEST to our current forward heading (0°)
+            # This ensures we don't do violent U-turns if a forward path is available.
+            best_r = min(safe_rays, key=lambda x: abs(x['angle']))
+            best_angle = best_r['angle']
         else:
-            if front_dist < DODGE_TRIGGER_DIST:
-                self.state = "DODGE"
-                self.dodge_timer = 0
-                
-                # PATHFINDING: Find the absolute widest gap in the front 180 sweep
-                best_gap_angle = 0
-                max_gap_val = 0
-                
-                # Evaluate paths every 10 degrees
-                for r in lidar_data:
-                    # Only look at the 180-degree front arc (-90 to 90)
-                    if abs(r['angle']) <= 90:
-                        # Weight paths closer to the center slightly higher to keep forward progress
-                        weight = 1.0 - (abs(r['angle']) / 180.0)
-                        score = r['distance'] * weight
-                        
-                        if score > max_gap_val:
-                            max_gap_val = score
-                            best_gap_angle = r['angle']
-                
-                # If front is totally blocked, pick a hard side based on overall space
-                if max_gap_val < 5.0:
-                    left_space = sum(r['distance'] for r in lidar_data if r['angle'] < 0)
-                    right_space = sum(r['distance'] for r in lidar_data if r['angle'] > 0)
-                    best_gap_angle = 120 if right_space > left_space else -120
+            # If no path is >= 12m, pick the absolute clearest direction available
+            # but bias it heavily toward the front 180 degrees.
+            max_dist = 0
+            for r in all_rays:
+                # Add a 'Frontal Bias' – we prefer going forward over backward
+                bias = 1.0 - (abs(r['angle']) / 360.0) 
+                score = r['distance'] * bias
+                if score > max_dist:
+                    max_dist = score
+                    best_angle = r['angle']
 
-                self.locked_gap_angle = best_gap_angle
-                
-                # Initial steering pulse to get moving
-                initial_steering = max(-1.0, min(1.0, self.locked_gap_angle / 90.0))
-                return {"throttle": 0.4, "steering": initial_steering}
+        # 3. CALCULATE STEERING
+        # We need an 'Immediate' turn but without the feedback-loop spin.
+        # Steering is relative to the current front. 
+        target_steering = best_angle / 90.0
+        target_steering = max(-1.0, min(1.0, target_steering))
+        
+        # Apply Hysteresis: 40% influence from last frame to smooth out 'violent' jitter
+        steering = (self.last_steering * 0.4) + (target_steering * 0.6)
+        self.last_steering = steering
 
-            # Clean path cruising
-            return {"throttle": 1.0, "steering": 0.0}
+        # 4. THROTTLE LOGIC
+        # Check if we are in the 'Danger Zone' (Frontal obstacle < 10m)
+        front_dist = min([r['distance'] for r in all_rays if abs(r['angle']) <= 15] + [15.0])
+        
+        throttle = 1.0
+        if front_dist < DANGER_ZONE:
+            # We are dodging. Use 50% speed to ensure the turn is tight and controlled.
+            throttle = 0.5
+        elif abs(steering) > 0.5:
+            # High-angle turn: Slow down slightly to maintain traction
+            throttle = 0.7
+
+        return {"throttle": throttle, "steering": steering}
 
 # Global singleton
 agent = EdgeAIAgent()
