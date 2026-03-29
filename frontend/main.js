@@ -359,8 +359,10 @@ function updatePhysics(dt) {
             
             if (hits.length > 0) {
                 const dist = hits[0].distance;
-                if (dist < 3.2) isSafetyTriggered = true;
-                if (dist < 2.5) {
+let autoTurnSpeed = 8.0;
+// ...
+                if (dist < 10.0) isSafetyTriggered = true;
+                if (dist < 6.0) {
                     isBlocked = true;
                     break;
                 }
