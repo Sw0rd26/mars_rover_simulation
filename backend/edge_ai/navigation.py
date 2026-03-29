@@ -10,30 +10,52 @@ class EdgeAIAgent:
         if not lidar_data:
             return {"throttle": 0.0, "steering": 0.0}
 
-        # STATE 1: Maneuvering while maintaining momentum
+        # STATE 1: Turning dynamically until the safest path is found
         if self.state == "TURN":
             self.timer += 1
             
-            # Check current heading
+            # Check a tight cone dead-ahead to see exactly what we are currently facing
             front_distance = min([r['distance'] for r in lidar_data if abs(r['angle']) <= 15] + [15.0])
             
             # Find the absolute best path available in the entire 360-degree scan
             max_all_distance = max([r['distance'] for r in lidar_data] + [0.0])
             
-            # EXIT STRATEGY: Stop dodging once a clear path is found or the best vector is aligned
+            # EXIT STRATEGY: 
+            # 1. Stop if the path is perfectly clear (> 12.5m)
+            # 2. OR Stop if we are now facing the 'Safest' direction (within 1m of the max available space) 
+            #    AS LONG AS that space is at least decently safe (> 8.0m)
             is_safest_aligned = (front_distance >= max_all_distance - 1.0) and (front_distance > 8.0)
             
-            if front_distance > 12.0 or is_safest_aligned or self.timer > 40:
+            if front_distance > 12.5 or is_safest_aligned or self.timer > 50:
                 self.state = "FORWARD"
                 
-            # CONTINUOUS DODGE: Keep moving forward at 40% speed while steering
-            return {"throttle": 0.4, "steering": self.turn_dir}
+            # STOP AND SPIN: Ensure the turn is precise by halting momentum
+            return {"throttle": 0.0, "steering": self.turn_dir}
 
         # STATE 2: Driving forward
         else: # self.state == "FORWARD"
             front_distance = min([r['distance'] for r in lidar_data if abs(r['angle']) <= 20] + [15.0])
             
-            # Trigger dodge if getting close
+            # TRIGGER DODGE: Detect obstacle within 9.5 meters
+            if front_distance < 9.5:
+                # Look broadly at both sides (FRONT ONLY) to definitively pick the most open path
+                left_space = sum(r['distance'] for r in lidar_data if r['angle'] < 0 and r['angle'] >= -90)
+                right_space = sum(r['distance'] for r in lidar_data if r['angle'] > 0 and r['angle'] <= 90)
+
+                self.turn_dir = 1.0 if right_space > left_space else -1.0
+                
+                self.state = "TURN"
+                self.timer = 0 
+                return {"throttle": 0.0, "steering": self.turn_dir}
+
+            # If the path DIRECTLY AHEAD is clear, just drive completely straight!
+            return {"throttle": 1.0, "steering": 0.0}
+
+# Global singleton
+agent = EdgeAIAgent()
+
+def calculate_drive_command(lidar_data: list) -> dict:
+    return agent.calculate_drive_command(lidar_data)
             if front_distance < 9.0:
                 self.state = "TURN"
                 self.timer = 0 
