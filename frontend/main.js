@@ -334,31 +334,6 @@ function updatePhysics(dt) {
     if (override) {
         throttle = manualThrottle;
         steering = manualSteering;
-
-        // ADAS: Forward Collision Avoidance
-        // If user is holding 'W', but the AI Edge node has engaged its dodge protocol (throttle 0.0 + steering)
-        if (throttle > 0 && aiThrottle === 0.0) {
-            assistActive = true;
-            throttle = 0.0; // Emergency Brake
-            steering = aiSteering; // Force AI Dodge vector
-        }
-
-        // ADAS: Rear Collision Avoidance (High-Priority Direct Sensor)
-        if (throttle < 0) {
-            const rearOrigin = rover.position.clone();
-            rearOrigin.y += 1.0;
-            const rearDir = new THREE.Vector3(0, 0, -1).applyAxisAngle(new THREE.Vector3(0, 1, 0), rover.rotation.y);
-            const rearRay = new THREE.Raycaster(rearOrigin, rearDir, 0, 10);
-            const rearHits = rearRay.intersectObjects(rocks);
-            
-            // Trigger emergency brake if a rock is within 2.0 meters of the rear bumper
-            if (rearHits.length > 0 && rearHits[0].distance < 2.0) {
-                rearBrake = true;
-                assistActive = true;
-                throttle = 0.0; // Slam Brakes!
-                steering = manualSteering; 
-            }
-        }
     } else {
         throttle = aiThrottle;
         steering = aiSteering;
@@ -367,25 +342,53 @@ function updatePhysics(dt) {
     // Apply Steering
     rover.rotation.y += steering * autoTurnSpeed * dt;
 
-    // Physical Collisions limits (Fallback if AI misses a corner)
+    // Combine Physics & ADAS logic
     if (throttle !== 0) {
         let isBlocked = false;
+        let isSafetyTriggered = false;
         const sign = Math.sign(throttle);
         const rDir = new THREE.Vector3(0, 0, 1).applyAxisAngle(new THREE.Vector3(0, 1, 0), rover.rotation.y).multiplyScalar(sign);
 
         const offsets = [
-            new THREE.Vector3(0, 1.0, 0),
-            new THREE.Vector3(1.2, 1.0, 0).applyAxisAngle(new THREE.Vector3(0, 1, 0), rover.rotation.y),
-            new THREE.Vector3(-1.2, 1.0, 0).applyAxisAngle(new THREE.Vector3(0, 1, 0), rover.rotation.y)
+            new THREE.Vector3(0, 0.8, 0),
+            new THREE.Vector3(1.1, 0.8, 0).applyAxisAngle(new THREE.Vector3(0, 1, 0), rover.rotation.y),
+            new THREE.Vector3(-1.1, 0.8, 0).applyAxisAngle(new THREE.Vector3(0, 1, 0), rover.rotation.y)
         ];
 
         for (let off of offsets) {
             const origin = rover.position.clone().add(off);
             const hitTest = new THREE.Raycaster(origin, rDir);
             const hits = hitTest.intersectObjects(rocks);
-            if (hits.length > 0 && hits[0].distance < 3.0) {
-                isBlocked = true;
-                break;
+            
+            if (hits.length > 0) {
+                const dist = hits[0].distance;
+                
+                // 1. SAFETY BUFFER (ADAS): Trigger alert and kill throttle early
+                if (dist < 3.5) {
+                    isSafetyTriggered = true;
+                }
+                
+                // 2. HARD BLOCK: Physical stop to prevent mesh clipping
+                if (dist < 3.0) {
+                    isBlocked = true;
+                    break;
+                }
+            }
+        }
+
+        // Apply ADAS Intervention
+        if (isSafetyTriggered && override) {
+            assistActive = true;
+            if (throttle < 0) rearBrake = true;
+            
+            // Forward: Force AI Dodge
+            if (throttle > 0 && aiThrottle === 0.0) {
+                throttle = 0.0;
+                steering = aiSteering;
+            } 
+            // Rear: Emergency Stop
+            else if (throttle < 0) {
+                throttle = 0.0;
             }
         }
 
