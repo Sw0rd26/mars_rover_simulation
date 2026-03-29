@@ -233,7 +233,7 @@ let aiThrottle = 0.0;
 let aiSteering = 0.0;
 let override = false;
 let autoSpeed = 4.0;
-let autoTurnSpeed = 3.0;
+let autoTurnSpeed = 5.0;
 let lastPayload = [];
 
 // --- ENVIRONMENT STATS ---
