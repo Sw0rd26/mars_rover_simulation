@@ -37,14 +37,10 @@ const stars = new THREE.Points(starGeo, starMat);
 skyGroup.add(stars);
 
 const phobos = new THREE.Mesh(new THREE.DodecahedronGeometry(12, 1), new THREE.MeshLambertMaterial({ color: 0xaaaaaa, emissive: 0x333333, transparent: true, opacity: 0, fog: false }));
-phobos.position.set(-150, 120, -200);
-skyGroup.add(phobos);
-
+phobos.position.set(-150, 120, -200); skyGroup.add(phobos);
 const deimos = new THREE.Mesh(new THREE.DodecahedronGeometry(6, 0), new THREE.MeshLambertMaterial({ color: 0x888888, emissive: 0x222222, transparent: true, opacity: 0, fog: false }));
-deimos.position.set(180, 150, -150);
-skyGroup.add(deimos);
+deimos.position.set(180, 150, -150); skyGroup.add(deimos);
 
-// --- CYCLE ---
 let timeOfDay = 0, targetColor = new THREE.Color(0x96321e), targetIntensity = 0.8, baseTemp = -40;
 function updateCycle(dt) {
     timeOfDay += dt; if (timeOfDay >= 90) timeOfDay = 0;
@@ -63,35 +59,25 @@ function updateCycle(dt) {
 }
 
 // --- TERRAIN ---
-const terrainSize = 250;
-const geometry = new THREE.PlaneGeometry(terrainSize, terrainSize, 64, 64);
-geometry.rotateX(-Math.PI / 2);
-function getGroundHeight(x, z) {
-    return Math.sin(x / 10) * Math.cos(z / 10) * 2.5 + Math.sin(x / 5 + z / 3) * 1.5;
-}
-const posAttr = geometry.attributes.position;
-for (let i = 0; i < posAttr.count; i++) {
-    const x = posAttr.getX(i), z = posAttr.getZ(i);
-    posAttr.setY(i, getGroundHeight(x, z));
-}
+function getGroundHeight(x, z) { return Math.sin(x / 10) * Math.cos(z / 10) * 2.5 + Math.sin(x / 5 + z / 3) * 1.5; }
+const geometry = new THREE.PlaneGeometry(250, 250, 64, 64); geometry.rotateX(-Math.PI / 2);
+const posAt = geometry.attributes.position;
+for (let i = 0; i < posAt.count; i++) { posAt.setY(i, getGroundHeight(posAt.getX(i), posAt.getZ(i))); }
 geometry.computeVertexNormals();
 const ground = new THREE.Mesh(geometry, new THREE.MeshStandardMaterial({ color: 0xb45032, roughness: 0.9, flatShading: true }));
-ground.receiveShadow = true;
-scene.add(ground);
+ground.receiveShadow = true; scene.add(ground);
 
 const rocks = [];
-const rockGeo = new THREE.DodecahedronGeometry(1, 0);
-const rockMat = new THREE.MeshStandardMaterial({ color: 0x64281e, roughness: 1, flatShading: true });
+const rockGeo = new THREE.DodecahedronGeometry(1, 0), rockMat = new THREE.MeshStandardMaterial({ color: 0x64281e, roughness: 1, flatShading: true });
 for (let i = 0; i < 110; i++) {
     const rx = (Math.random() - 0.5) * 180, rz = (Math.random() - 0.5) * 180;
     if (Math.abs(rx) < 15 && Math.abs(rz) < 15) continue;
-    const r = new THREE.Mesh(rockGeo, rockMat);
-    const s = Math.random() * 2 + 1.5;
+    const r = new THREE.Mesh(rockGeo, rockMat), s = Math.random() * 2 + 1.5;
     r.position.set(rx, getGroundHeight(rx, rz) + s * 0.5, rz);
     r.scale.set(s,s,s); r.rotation.set(Math.random()*3, Math.random()*3, Math.random()*3);
     r.castShadow = true; r.receiveShadow = true; scene.add(r); rocks.push(r);
 }
-// Crater
+// Crater Boundary
 for (let a = 0; a < 6.3; a += 0.05) {
     const r = new THREE.Mesh(rockGeo, rockMat);
     const rx = Math.sin(a) * 120, rz = Math.cos(a) * 120, s = Math.random() * 5 + 10;
@@ -101,8 +87,7 @@ for (let a = 0; a < 6.3; a += 0.05) {
 }
 
 // --- ROVER ---
-const rover = new THREE.Group();
-rover.position.set(0, 5, 0); scene.add(rover);
+const rover = new THREE.Group(); rover.position.set(0, 5, 0); scene.add(rover);
 const body = new THREE.Mesh(new THREE.BoxGeometry(1.8, 0.8, 2.5), new THREE.MeshStandardMaterial({ color: 0xffd700 }));
 body.position.y = 1; body.castShadow = true; rover.add(body);
 const antenna = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.05, 1.5), new THREE.MeshStandardMaterial({ color: 0xaaaaaa }));
@@ -110,11 +95,10 @@ antenna.position.set(-0.4, 1.8, -0.4); rover.add(antenna);
 const dish = new THREE.Mesh(new THREE.SphereGeometry(0.3, 16, 16), new THREE.MeshStandardMaterial({ color: 0xaaaaaa }));
 dish.position.y = 0.75; antenna.add(dish);
 const wheels = [];
-const wOffsets = [[-1.2, 0.4, 1.3], [1.2, 0.4, 1.3], [-1.4, 0.4, 0], [1.4, 0.4, 0], [-1.2, 0.4, -1.3], [1.2, 0.4, -1.3]];
-for (let o of wOffsets) {
+const wOffs = [[-1.2, 0.4, 1.3], [1.2, 0.4, 1.3], [-1.4, 0.4, 0], [1.4, 0.4, 0], [-1.2, 0.4, -1.3], [1.2, 0.4, -1.3]];
+for (let o of wOffs) {
     const w = new THREE.Mesh(new THREE.CylinderGeometry(0.4, 0.4, 0.4, 16), new THREE.MeshStandardMaterial({ color: 0x222222 }));
-    w.rotateZ(Math.PI / 2); w.position.set(o[0], o[1], o[2]); w.castShadow = true;
-    rover.add(w); wheels.push(w);
+    w.rotateZ(Math.PI / 2); w.position.set(o[0], o[1], o[2]); w.castShadow = true; rover.add(w); wheels.push(w);
 }
 
 // --- LIDAR ---
@@ -158,13 +142,13 @@ connect();
 const clock = new THREE.Clock();
 
 function updateCamera() {
-    // FIXED CAMERA (NO LERP TO PREVENT FREEZE)
     const off = new THREE.Vector3(0, 10, -15).applyQuaternion(rover.quaternion).add(rover.position);
     camera.position.set(off.x, off.y, off.z);
     const trg = new THREE.Vector3(0, 2, 5).applyQuaternion(rover.quaternion).add(rover.position);
     camera.lookAt(trg); skyGroup.position.copy(camera.position);
 }
 
+// --- SMOOTH GLIDE ADAS ---
 function updatePhysics(dt) {
     let assist = false, brake = false;
     if (override) { throttle = manualT; steering = manualS; } else { throttle = aiT; steering = aiS; }
@@ -178,16 +162,27 @@ function updatePhysics(dt) {
             const hits = new THREE.Raycaster(rover.position.clone().add(o), rDir).intersectObjects(rocks);
             if (hits.length > 0) {
                 const d = hits[0].distance;
-                if (throttle > 0 && d < 6.0) haz = true;
-                if (throttle < 0 && d < 2.5) { haz = true; brake = true; }
+                if (throttle > 0 && d < 7.5) haz = true; // Front hazard trigger
+                if (throttle < 0 && d < 2.5) { haz = true; brake = true; } // Rear brake
                 if (d < 1.0) { block = true; break; }
             }
         }
-        if (haz) { assist = true; throttle = 0; if (override) steering = aiS; }
+
+        if (haz) {
+            assist = true;
+            if (throttle > 0) {
+                // GLIDE DODGE: Slow down but DO NOT STOP. Snap steering to AI escape path.
+                throttle *= 0.4; 
+                if (override) steering = aiS; 
+            } else {
+                throttle = 0; // Hard stop for reverse
+            }
+        }
+
         if (!block) {
-            rover.rotation.y += steering * 5.0 * dt;
+            rover.rotation.y += steering * 5.5 * dt;
             const fwd = new THREE.Vector3(0,0,1).applyAxisAngle(new THREE.Vector3(0,1,0), rover.rotation.y);
-            rover.position.addScaledVector(fwd, throttle * 4.0 * dt);
+            rover.position.addScaledVector(fwd, throttle * 4.5 * dt);
         }
     }
     rover.position.y = getGroundHeight(rover.position.x, rover.position.z);
@@ -195,10 +190,13 @@ function updatePhysics(dt) {
     const bY = getGroundHeight(rover.position.x - Math.sin(rover.rotation.y)*2, rover.position.z - Math.cos(rover.rotation.y)*2);
     rover.rotation.x = Math.atan2(bY - fY, 4.0);
 
-    const state = (ws && ws.readyState === 1) ? "Bağlandı" : "Bağlantı kesildi";
-    let hud = `<h2>MARS ROVER</h2>Bağlantı: ${state}\nHız: ${throttle.toFixed(2)} | Dönüş: ${(-steering).toFixed(2)}\nSürüş: ${override ? 'MANUEL' : 'OTOPİLOT'}`;
-    if (assist && override) hud += `<br><span style="color:#ff3333;">⚠️ KAZA ÖNLEYİCİ ${brake ? '(ARKA BRAK)' : '(ÖN ENGEL)'}</span>`;
-    document.getElementById('hud').innerHTML = hud;
+    const connectionState = (ws && ws.readyState === 1) ? "Bağlandı" : "Bağlantı kesildi";
+    let hudHtml = `<h2>MARS ROVER SİSTEMİ</h2><p>Bağlantı: ${connectionState}\nHız: ${throttle.toFixed(2)}\nDönüş: ${(-steering).toFixed(2)}\nSürüş Sistemi: ${override ? 'Manuel (WASD)' : 'OTOPİLOT'}`;
+    if (assist && override) {
+        hudHtml += `<br><span style="color:#ff3333; font-weight:bold;">⚠️ KAZA ÖNLEYİCİ SİSTEM DEVREDE!</span>`;
+        if (brake) hudHtml += `<br><span style="color:#ffaa00;">Sistem aracın geriye doğru hareketini durdurdu.</span>`;
+    }
+    document.getElementById('hud').innerHTML = hudHtml + `</p>`;
 }
 
 function processSensors(dt) {
@@ -211,8 +209,8 @@ function processSensors(dt) {
         raycaster.set(orig, wDir);
         const hits = raycaster.intersectObjects(rocks);
         line.rotation.y = yR; line.rotation.x = -pR;
-        let d = 15, h = false;
-        if (hits.length > 0 && hits[0].distance < 15) { d = hits[0].distance; h = true; line.material = mH; line.scale.z = d/15; }
+        let d = 15;
+        if (hits.length > 0 && hits[0].distance < 15) { d = hits[0].distance; line.material = mH; line.scale.z = d/15; }
         else { line.material = mS; line.scale.z = 1; }
         pAll.push({ angle: ray.yaw, distance: d });
         if (!sq[ray.yaw] || d < sq[ray.yaw]) sq[ray.yaw] = d;
@@ -221,8 +219,7 @@ function processSensors(dt) {
     let crowd = 0; pAll.forEach(p => { if (p.distance < 12) crowd += (12 - p.distance); });
     let norm = Math.min(crowd / 150, 1);
     pH += (7.7 + norm*0.8 - pH) * 0.1; temp += (baseTemp + norm*15 - temp) * 0.1; moist += (1.0 + norm*2 - moist) * 0.1;
-    document.getElementById('envData').innerHTML = `pH: ${pH.toFixed(2)}\nSıcaklık: ${temp.toFixed(1)}°C\nNem: ${moist.toFixed(1)}%`;
-    
+    document.getElementById('envData').innerHTML = `pH Seviyesi : ${pH.toFixed(2)}\nSıcaklık    : ${temp.toFixed(1)}°C\nNem Oranı   : ${moist.toFixed(1)}%`;
     const pAI = Object.keys(sq).map(y => ({ angle: parseFloat(y), distance: sq[y] }));
     if (ws && ws.readyState === 1 && clock.elapsedTime - lastS > 0.1) { ws.send(JSON.stringify({ lidar: pAI })); lastS = clock.elapsedTime; }
 }
