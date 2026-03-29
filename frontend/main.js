@@ -372,9 +372,9 @@ function updatePhysics(dt) {
             assistActive = true;
             if (throttle < 0) rearBrake = true;
             
-            // HAZARD DETECTED: Kill all user momentum and force the AI's safe steering vector
-            throttle = 0.0; 
-            steering = aiSteering; // Force intelligent escape even in manual mode
+            // HAZARD DETECTED: Seize steering control to snap to the 12m Safe Pathway
+            throttle = 0.0; // Stop user-throttle drift
+            steering = aiSteering; // Force the AI's instant gap-finding vector
         }
 
         if (!isBlocked) {
