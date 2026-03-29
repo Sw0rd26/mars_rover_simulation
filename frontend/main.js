@@ -376,19 +376,18 @@ function updatePhysics(dt) {
             }
         }
 
-        // Apply ADAS Intervention
-        if (isSafetyTriggered && override) {
+        // Apply ADAS Intervention (Absolute Priority during Hazards)
+        if isSafetyTriggered && override) {
             assistActive = true;
-            if (throttle < 0) rearBrake = true;
             
-            // Forward: Force AI Dodge
-            if (throttle > 0 && aiThrottle === 0.0) {
+            if (throttle < 0) {
+                // Rear Collision: Emergency Brake
+                rearBrake = true;
                 throttle = 0.0;
-                steering = aiSteering;
-            } 
-            // Rear: Emergency Stop
-            else if (throttle < 0) {
-                throttle = 0.0;
+            } else if (throttle > 0) {
+                // Forward Collision: Intercept W-throttle and force AI escape vector
+                throttle = 0.0; // Kill user speed
+                steering = aiSteering; // Substitute with AI gap-finding turn
             }
         }
 
