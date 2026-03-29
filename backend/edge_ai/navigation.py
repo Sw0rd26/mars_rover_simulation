@@ -11,22 +11,20 @@ class EdgeAIAgent:
         if not lidar_data:
             return {"throttle": 0.0, "steering": 0.0}
 
-        # --- TUNED HEDGEHOG-CLASS DECISIVE NAVIGATION ---
-        # Increased sensitivity to ensure the AI reacts BEFORE the frontend ADAS slows it down.
-        SAFE_CORRIDOR = 15.0      # Clear path depth
-        DANGER_ZONE = 12.5        # Proactive trigger (up from 11.0)
-        FRONT_SWEEP = 45          # Wide focal cone (Total 90 degrees)
-        MIN_GAP_WIDTH = 3         # Sector width requirement
+        # --- HEDGEHOG V4: WIDE-SECTOR GAP VECTORING ---
+        SAFE_CORRIDOR = 14.5      # Distance to define a "Green" path
+        DANGER_ZONE = 12.0        # Trigger to start dodging
+        FRONT_SWEEP = 50          # 100-degree focal cone for hazard detection
         
         all_rays = lidar_data
-        # Broad focal cone to prevent "missing" side-rocks
+        # Broad focal cone (90 degrees total) to catch side-objects
         front_dist = min([r['distance'] for r in all_rays if abs(r['angle']) <= FRONT_SWEEP] + [15.0])
 
-        # 1. STATE MACHINE: Irreversible Commitment
+        # 1. STATE DETERMINATION
         if self.state == "DODGE":
             self.commit_timer += 1
-            # Maintain commitment until the path is COMPLETELY clear
-            if front_dist > 14.5 and self.commit_timer > 20: 
+            # Maintain dodge until the front is ENTIRELY clear and we've committed
+            if front_dist > 14.0 and self.commit_timer > 30: 
                 self.state = "FORWARD"
                 self.locked_side = 0
                 self.commit_timer = 0
@@ -34,52 +32,56 @@ class EdgeAIAgent:
             if front_dist < DANGER_ZONE:
                 self.state = "DODGE"
                 self.commit_timer = 0
-                # Choose side based on total peripheral space (-90 to +90)
-                left_space = sum(r['distance'] for r in all_rays if -90 <= r['angle'] < 0)
-                right_space = sum(r['distance'] for r in all_rays if 0 < r['angle'] <= 90)
+                # Initial choice based on total space
+                left_space = sum(r['distance'] for r in all_rays if -70 <= r['angle'] < 0)
+                right_space = sum(r['distance'] for r in all_rays if 0 < r['angle'] <= 70)
                 self.locked_side = 1 if right_space > left_space else -1
 
-        # 2. PATHFINDING: The Decisive Escape
+        # 2. SECTOR ANALYSIS: The "Turn to Green" Logic
         best_angle = 0
         if self.state == "DODGE":
-            # ONLY search for gaps on the locked side
-            side_rays = [r for r in all_rays if (r['angle'] * self.locked_side) > 0]
-            
+            # Identify all Safe Gaps in the environment
             gaps = []
             curr_gap = []
-            for r in sorted(side_rays, key=lambda x: x['angle']):
-                if r['distance'] >= SAFE_CORRIDOR: curr_gap.append(r)
+            # Scan all rays to find "Green Roads"
+            for r in sorted(all_rays, key=lambda x: x['angle']):
+                if r['distance'] >= SAFE_CORRIDOR:
+                    curr_gap.append(r)
                 else:
-                    if len(curr_gap) >= MIN_GAP_WIDTH: gaps.append(curr_gap)
+                    if len(curr_gap) >= 4: # Min 40-degree width for safety
+                        gaps.append(curr_gap)
                     curr_gap = []
-            if len(curr_gap) >= MIN_GAP_WIDTH: gaps.append(curr_gap)
+            if len(curr_gap) >= 4: gaps.append(curr_gap)
             
-            if gaps:
-                # Target the safest gap on the chosen side
-                best_gap = min(gaps, key=lambda g: abs(sum(r['angle'] for r in g)/len(g)))
-                raw_angle = sum(r['angle'] for r in best_gap) / len(best_gap)
-                
-                # STEERING AMPLIFICATION:
-                # If the AI says turn 15 degrees, we turn 60 to be DECISIVE.
-                best_angle = raw_angle
-                if abs(best_angle) < 60:
-                    best_angle = 60 * self.locked_side
+            # Find the best gap on our locked side
+            side_gaps = [g for g in gaps if (sum(r['angle'] for r in g)/len(g)) * self.locked_side > 0]
+            
+            if side_gaps:
+                # Target the largest gap on the correct side
+                best_gap = max(side_gaps, key=lambda g: len(g))
+                best_angle = sum(r['angle'] for r in best_gap) / len(best_gap)
+                # AMPLIFY: Ensure we dodge wide enough to clear the rock
+                if abs(best_angle) < 65:
+                    best_angle = 65 * self.locked_side
             else:
-                # No clear safe path? Maximum defensive pivot
-                best_angle = 130 * self.locked_side
+                # No gaps found on that side? Hard pivot
+                best_angle = 135 * self.locked_side
             
-            # Momentum: 50% Speed
-            throttle = 0.5 
+            throttle = 0.5 # Gliding momentum
         else:
+            # FORWARD: Smooth cruise
             best_angle = 0
-            # Adaptive speed control: slow slightly if even a little turned
-            throttle = 1.0 if abs(self.last_steering) < 0.2 else 0.8
-            
-        # 3. STEERING 
+            throttle = 1.0
+
+        # 3. STEERING RESOLUTION
         target_steering = best_angle / 90.0
+        # Aggressive steering override during dodge
+        if self.state == "DODGE":
+            target_steering *= 1.4 
+            
         target_steering = max(-1.4, min(1.4, target_steering))
         
-        # Fast Snapping: 90% immediate response
+        # High-response steering (90% immediate)
         steering = (self.last_steering * 0.1) + (target_steering * 0.9)
         self.last_steering = steering
 
@@ -90,4 +92,3 @@ agent = EdgeAIAgent()
 
 def calculate_drive_command(lidar_data: list) -> dict:
     return agent.calculate_drive_command(lidar_data)
-
