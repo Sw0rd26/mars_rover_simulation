@@ -1,0 +1,31 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Mars Rover Web Simulation</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <div id="hud">
+    <h2>EDGE AI DASHBOARD</h2>
+    <p>Connecting to Edge Node...</p>
+  </div>
+  
+  <div id="stats">
+    <h2>JEOLOJİ SENSÖRLERİ</h2>
+    <p id="envData">Sensörler başlatılıyor...</p>
+  </div>
+
+  <!-- External ES Module Map for Native Browser Imports -->
+  <script type="importmap">
+      {
+        "imports": {
+          "three": "https://unpkg.com/three@0.160.0/build/three.module.js",
+          "three/addons/": "https://unpkg.com/three@0.160.0/examples/jsm/"
+        }
+      }
+    </script>
+  <script type="module" src="main.js"></script>
+</body>
+</html>
