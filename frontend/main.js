@@ -296,7 +296,7 @@ function connectWS() {
     const isLocal = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
     const wsUrl = isLocal 
         ? 'ws://localhost:8000/ws' 
-        : 'wss://YOUR-CLOUD-SERVER-HERE.onrender.com/ws'; // REPLACE WITH YOUR RENDER.COM URL
+        : 'wss://mars-rover-simulation.onrender.com/ws'; 
         
     ws = new WebSocket(wsUrl);
     ws.onmessage = (event) => {
@@ -417,7 +417,8 @@ function updatePhysics(dt) {
 
 let lastSend = 0;
 function processSensorsAndNetwork(dt) {
-    const payload = [];
+    const payloadAll = []; // Full 108-ray buffer for local physics/ADAS
+    const payloadAI = [];  // Filtered 36-ray packet for the remote AI
     const origin = new THREE.Vector3();
     rover.getWorldPosition(origin);
     origin.y += 0.5;
@@ -428,41 +429,45 @@ function processSensorsAndNetwork(dt) {
         const yawRad = THREE.MathUtils.degToRad(ray.yaw);
         const pitchRad = THREE.MathUtils.degToRad(ray.pitch);
 
-        // Compute strict local 3D forward vector rotated by spherical angles
+        // Compute 3D forward vector
         const localDir = new THREE.Vector3(
             Math.sin(yawRad) * Math.cos(pitchRad),
             Math.sin(pitchRad),
             Math.cos(yawRad) * Math.cos(pitchRad)
         ).normalize();
 
-        // Map this to World Space precisely against the rover's physical rotation
         const worldDir = localDir.applyQuaternion(rover.quaternion);
-
         raycaster.set(origin, worldDir);
         const intersects = raycaster.intersectObjects(rocks);
 
         line.rotation.y = yawRad; 
-        line.rotation.x = -pitchRad; // Tilt upwards visually
+        line.rotation.x = -pitchRad; 
 
+        let dist = lidarRange;
+        let hit = false;
         if (intersects.length > 0 && intersects[0].distance < lidarRange) {
-            payload.push({ angle: ray.yaw, distance: intersects[0].distance, hit: true }); // AI only needs horizontal yaw to steer safely!
+            dist = intersects[0].distance;
+            hit = true;
             line.material = materialHit;
-            line.scale.z = intersects[0].distance / lidarRange;
+            line.scale.z = dist / lidarRange;
         } else {
-            payload.push({ angle: ray.yaw, distance: lidarRange, hit: false });
             line.material = materialSafe;
             line.scale.z = 1.0;
         }
+
+        const dataNode = { angle: ray.yaw, distance: dist, hit: hit, pitch: ray.pitch };
+        payloadAll.push(dataNode);
+        if (ray.pitch === 0) payloadAI.push(dataNode);
     });
 
-    lastPayload = payload;
+    lastPayload = payloadAll; // Local physics now uses the FULL 108-ray set correctly!
     
     // Update geology dashboard dynamically
-    updateEnvironmentStats(dt, payload);
+    updateEnvironmentStats(dt, payloadAll);
 
     if (ws && ws.readyState === WebSocket.OPEN) {
-        if (clock.elapsedTime - lastSend > 0.05) { // Strict 20Hz limiter
-            ws.send(JSON.stringify({ lidar: payload }));
+        if (clock.elapsedTime - lastSend > 0.1) { // Optimized 10Hz for cloud stability
+            ws.send(JSON.stringify({ lidar: payloadAI }));
             lastSend = clock.elapsedTime;
         }
     }
