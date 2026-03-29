@@ -2,38 +2,63 @@ import random
 
 class EdgeAIAgent:
     def __init__(self):
-        self.state = "FORWARD"
-        self.timer = 0
-        self.turn_dir = 1.0
-        self.min_turn_ticks = 12 # Force at least 1.2 seconds of turning to prevent 'shaking'
+        # We've removed the TURN state machine to provide 'Instant' proactive steering
+        self.last_steering = 0.0
 
     def calculate_drive_command(self, lidar_data: list) -> dict:
         if not lidar_data:
             return {"throttle": 0.0, "steering": 0.0}
 
-        # STATE 1: Stable Turning Maneuver
-        if self.state == "TURN":
-            self.timer += 1
-            
-            # Check current heading clearance
-            front_distance = min([r['distance'] for r in lidar_data if abs(r['angle']) <= 15] + [15.0])
-            
-            # Find the absolute best path available in the entire 360-degree scan
-            max_all_distance = max([r['distance'] for r in lidar_data] + [0.0])
-            
-            # EXIT STRATEGY: 
-            # 1. Must stay in TURN for at least min_turn_ticks to ensure a visible, stable change in heading
-            # 2. After that, exit if path is clear (> 13m) or aligned with the absolute best available vector
-            is_safest_aligned = (front_distance >= max_all_distance - 0.5) and (front_distance > 9.0)
-            
-            if self.timer >= self.min_turn_ticks:
-                if front_distance > 13.0 or is_safest_aligned or self.timer > 60:
-                    self.state = "FORWARD"
-                    self.timer = 0
-                
-            return {"throttle": 0.2, "steering": self.turn_dir}
+        # 1. ANALYZE THE FRONT HEMISPHERE (-90 to +90)
+        front_lidar = [r for r in lidar_data if abs(r['angle']) <= 100]
+        if not front_lidar:
+            return {"throttle": 0.0, "steering": 0.0}
 
-        # STATE 2: Driving forward
+        # 2. FIND THE WIDEST 'GAPS' (Paths with at least 6m clearance)
+        # We look for the angle that points to the most open space
+        best_angle = 0
+        max_dist = 0
+        
+        # Strategy: Find the single 'Safest Vector' in the front 180 degrees
+        for r in front_lidar:
+            if r['distance'] > max_dist:
+                max_dist = r['distance']
+                best_angle = r['angle']
+
+        # 3. DECISION LOGIC: Proactive Steering
+        # Calculate the direct steering needed to face the 'Best Angle'
+        # normalized -1 (Left) to 1 (Right). 
+        # Note: In our system, positive angle is Right, so steering is best_angle / 90.0
+        target_steering = best_angle / 90.0
+        
+        # Smooth the steering to prevent 'shaking' while remaining instant
+        steering = (self.last_steering * 0.4) + (target_steering * 0.6)
+        self.last_steering = steering
+
+        # 4. THROTTLE LOGIC: Dynamic Speed based on path clearance
+        center_dist = min([r['distance'] for r in lidar_data if abs(r['angle']) <= 15] + [15.0])
+        
+        throttle = 1.0
+        if center_dist < 4.0:
+            # Dangerously close! Reverse and steer away from the nearest object
+            throttle = -0.6
+            # Override steering to turn away from the closest obstruction
+            closest_obj = min(front_lidar, key=lambda x: x['distance'])
+            steering = 1.0 if closest_obj['angle'] < 0 else -1.0
+        elif center_dist < 8.0:
+            # Approaching obstacle: Slow down to 40% speed and steer hard into the gap
+            throttle = 0.4
+        elif abs(steering) > 0.4:
+            # Turning significantly: Reduce speed slightly for stability
+            throttle = 0.7
+
+        return {"throttle": throttle, "steering": steering}
+
+# Global singleton
+agent = EdgeAIAgent()
+
+def calculate_drive_command(lidar_data: list) -> dict:
+    return agent.calculate_drive_command(lidar_data)
         else: # self.state == "FORWARD"
             front_distance = min([r['distance'] for r in lidar_data if abs(r['angle']) <= 20] + [15.0])
             
