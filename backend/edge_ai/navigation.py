@@ -10,16 +10,23 @@ class EdgeAIAgent:
         if not lidar_data:
             return {"throttle": 0.0, "steering": 0.0}
 
-        # STATE 1: Turning dynamically until the coast is clear
+        # STATE 1: Turning dynamically until the safest path is found
         if self.state == "TURN":
             self.timer += 1
             
-            # Check a tight cone dead-ahead to see exactly what the front wheels are facing
+            # Check a tight cone dead-ahead to see exactly what we are currently facing
             front_distance = min([r['distance'] for r in lidar_data if abs(r['angle']) <= 15] + [15.0])
             
-            # Stop turning the exact moment the physical path directly in front is clear!
-            # Reduced to 12.5 meters to make the dodge less drastic as requested
-            if front_distance > 12.5 or self.timer > 50:
+            # Find the absolute best path available in the entire 360-degree scan
+            max_all_distance = max([r['distance'] for r in lidar_data] + [0.0])
+            
+            # EXIT STRATEGY: 
+            # 1. Stop if the path is perfectly clear (> 13m)
+            # 2. OR Stop if we are now facing the 'Safest' direction (within 1m of the max available space) 
+            #    AS LONG AS that space is at least decently safe (> 8.0m)
+            is_safest_aligned = (front_distance >= max_all_distance - 1.0) and (front_distance > 8.0)
+            
+            if front_distance > 13.0 or is_safest_aligned or self.timer > 60:
                 self.state = "FORWARD"
                 
             return {"throttle": 0.0, "steering": self.turn_dir}
