@@ -11,58 +11,60 @@ class EdgeAIAgent:
         if not lidar_data:
             return {"throttle": 0.0, "steering": 0.0}
 
-        # --- HEDGEHOG V6: SURGICAL CORRIDOR EVASION ---
-        # Only focus on rocks that are PHYSICALLY in our path (Width-based Corridor)
-        ROVER_WIDTH_SAFETY = 2.8   # 2.8m corridor (Rover is 1.8m)
-        DANGER_ZONE = 12.0         # Proactive trigger distance
-        SAFE_CORRIDOR_DIST = 14.5  # Distance to define a "Green" road
+        # --- HEDGEHOG V7: SPATIAL CLEARANCE HYSTERESIS ---
+        ROVER_WIDTH_SAFETY = 3.0   # 3.0m corridor for evasion triggering
+        DANGER_ZONE = 11.5         # Proactive trigger distance
         
         all_rays = lidar_data
         
-        # 1. HAZARD DETECTION: "Only what blocks me"
-        # Find rocks that are both CLOSER than DANGER_ZONE and inside the ROVER'S WIDTH corridor.
-        hazards = []
+        # 1. TRIGGER: SURGICAL CORRIDOR
+        # Check if anything is PHYSICALLY in the way of the rover's width
+        corridor_hazards = []
         for r in all_rays:
-            ang_rad = math.radians(r['angle'])
-            # Lateral distance from the center-line: d * sin(angle)
-            lateral_offset = abs(r['distance'] * math.sin(ang_rad))
+            # We only care about rocks in front for the TRIGGER
+            if abs(r['angle']) > 90: continue 
+            lateral_offset = abs(r['distance'] * math.sin(math.radians(r['angle'])))
             if r['distance'] < DANGER_ZONE and lateral_offset < (ROVER_WIDTH_SAFETY / 2.0):
-                hazards.append(r)
+                corridor_hazards.append(r)
         
-        front_dist = min([h['distance'] for h in hazards] + [15.0])
+        is_blocked = len(corridor_hazards) > 0
 
-        # 2. STATE MACHINE: Irreversible Decision
+        # 2. CLEARANCE: 180-DEGREE PROXIMITY
+        # We only exit DODGE if the ENTIRE front semicircle is clear.
+        # This stops the "Circling" (Orbiting) behavior.
+        proximity_front = min([r['distance'] for r in all_rays if abs(r['angle']) <= 95] + [15.0])
+        is_fully_clear = (proximity_front >= 13.5)
+
+        # 3. STATE MACHINE
         if self.state == "DODGE":
             self.commit_timer += 1
-            # Hard Hysteresis: Don't exit until the path is PERFECTLY clear for a sustained period
-            if front_dist >= 14.9 and self.commit_timer > 35: 
+            # CRITICAL: Stay in DODGE until the environment is 100% clear.
+            if is_fully_clear and self.commit_timer > 30: 
                 self.state = "FORWARD"
                 self.locked_side = 0
                 self.commit_timer = 0
         else:
-            if front_dist < DANGER_ZONE:
+            if is_blocked:
                 self.state = "DODGE"
                 self.commit_timer = 0
-                # Choose the side with the most peripheral space to bypass
+                # Choose escape side based on total peripheral clearance
                 left_space = sum(r['distance'] for r in all_rays if -90 <= r['angle'] < 0)
                 right_space = sum(r['distance'] for r in all_rays if 0 < r['angle'] <= 90)
                 self.locked_side = 1 if right_space > left_space else -1
 
-        # 3. SECTOR ANALYSIS: "Turn Sharply to Green"
+        # 4. DECISIVE BYPASS VECTOR
         best_angle = 0
         if self.state == "DODGE":
-            # Identify "Green Roads" (Safe Gaps)
+            # Search for the best "Green Road" (Gap) on the locked side
             gaps = []
             curr_gap = []
             for r in sorted(all_rays, key=lambda x: x['angle']):
-                if r['distance'] >= SAFE_CORRIDOR_DIST:
-                    curr_gap.append(r)
+                if r['distance'] >= 14.5: curr_gap.append(r)
                 else:
                     if len(curr_gap) >= 3: gaps.append(curr_gap)
                     curr_gap = []
             if len(curr_gap) >= 3: gaps.append(curr_gap)
             
-            # Target the best gap on our locked side
             side_gaps = [g for g in gaps if (sum(r['angle'] for r in g)/len(g)) * self.locked_side > 0]
             
             if side_gaps:
@@ -70,32 +72,32 @@ class EdgeAIAgent:
                 best_gap = max(side_gaps, key=lambda g: len(g))
                 target_angle = sum(r['angle'] for r in best_gap) / len(best_gap)
                 
-                # SURGICAL BYPASS: Ensure the turn is aggressive enough to PASS the rock
-                # The closer the rock, the sharper we turn.
-                proximity_multiplier = max(1.0, 15.0 / (front_dist + 0.1))
-                best_angle = target_angle * 0.5 + (80 * self.locked_side * 0.5)
-                # Ensure a minimum decisive turn of 80 degrees
-                if abs(best_angle) < 80:
-                    best_angle = 80 * self.locked_side
+                # SHARP PASS LOGIC:
+                # The closer the rock, the more we rotate AWAY from it.
+                # Min dodge angle is 85 degrees to ensure we clear the side footprint.
+                best_angle = target_angle
+                if abs(best_angle) < 85:
+                    best_angle = 85 * self.locked_side
             else:
-                # Emergency: Maximum defensive pivot
+                # Emergency: Maximum evasive pivot
                 best_angle = 145 * self.locked_side
             
-            throttle = 0.5 # Gliding momentum
+            throttle = 0.5 # Maintain gliding momentum
         else:
+            # FORWARD: Normal cruise
             best_angle = 0
+            # Stability: Slow down if turning
             throttle = 1.0 if abs(self.last_steering) < 0.2 else 0.8
 
-        # 4. STEERING RESOLUTION
+        # 5. STEERING RESOLUTION
         target_steering = best_angle / 90.0
-        # Aggressive steering during dodge state to bypass the obstacle quickly
+        # Aggressive steering override (2.0x) to clear obstacles decisively
         if self.state == "DODGE":
-            # Steering is now highly aggressive (1.8x) to ensure sharp passes
-            target_steering *= 1.8
+            target_steering *= 2.0
             
-        target_steering = max(-1.6, min(1.6, target_steering))
+        target_steering = max(-1.8, min(1.8, target_steering))
         
-        # Immediate response snapping
+        # High-response snapping
         steering = (self.last_steering * 0.1) + (target_steering * 0.9)
         self.last_steering = steering
 
