@@ -16,26 +16,29 @@ class EdgeAIAgent:
         MIN_GAP_WIDTH = 3     # 30-degree minimum width
         
         all_rays = lidar_data
-        front_dist = min([r['distance'] for r in lidar_data if abs(r['angle']) <= 15] + [15.0])
+        # Look specifically at the focal front cone (30 degrees)
+        front_dist = min([r['distance'] for r in all_rays if abs(r['angle']) <= 15] + [15.0])
 
-        # 1. STATE MANAGEMENT: Enter/Exit Dodging
+        # 1. STATE MANAGEMENT: Mandatory Commitment
         if self.state == "DODGE":
-            if front_dist > 12.5: # Clear enough to resume forward
+            # Exit only when the path dead-ahead is truly clear
+            if front_dist > 12.5: 
                 self.state = "FORWARD"
                 self.locked_side = 0
         else:
             if front_dist < DANGER_ZONE:
                 self.state = "DODGE"
-                # Initial commitment: Pick the side with more overall space
-                left_space = sum(r['distance'] for r in all_rays if r['angle'] < 0 and r['angle'] >= -60)
-                right_space = sum(r['distance'] for r in all_rays if r['angle'] > 0 and r['angle'] <= 60)
+                # Evaluate overall sector space (-80 to +80)
+                left_space = sum(r['distance'] for r in all_rays if -80 <= r['angle'] < 0)
+                right_space = sum(r['distance'] for r in all_rays if 0 < r['angle'] <= 80)
                 self.locked_side = 1 if right_space > left_space else -1
 
-        # 2. PATHFINDING BASED ON STATE
+        # 2. PATHFINDING: One-Way Search
         best_angle = 0
         if self.state == "DODGE":
-            # Search for best cluster specifically on our LOCKED SIDE
+            # ONLY look for paths on the locked side. This PREVENTS oscillation.
             side_rays = [r for r in all_rays if (r['angle'] * self.locked_side) > 0]
+            
             gaps = []
             curr_gap = []
             for r in sorted(side_rays, key=lambda x: x['angle']):
@@ -46,29 +49,29 @@ class EdgeAIAgent:
             if len(curr_gap) >= MIN_GAP_WIDTH: gaps.append(curr_gap)
             
             if gaps:
-                # Target the center of the best gap on our preferred side
+                # Target the safest wide cluster on this side
                 best_gap = min(gaps, key=lambda g: abs(sum(r['angle'] for r in g)/len(g)))
                 best_angle = sum(r['angle'] for r in best_gap) / len(best_gap)
             else:
-                # No wide gap? Steer hard away from the closest object on the safe side
-                best_angle = 100 * self.locked_side
+                # No wide gap discovered yet? Use a hard vector on the safe side
+                best_angle = 110 * self.locked_side
         else:
-            best_angle = 0 # Cruise straight
+            best_angle = 0 # Forward cruise
             
-        # 3. STEERING CALCULATION
+        # 3. STEERING 
         target_steering = best_angle / 90.0
-        target_steering = max(-1.0, min(1.0, target_steering))
+        target_steering = max(-1.1, min(1.1, target_steering))
         
-        # 80% reaction, 20% smoothing
-        steering = (self.last_steering * 0.2) + (target_steering * 0.8)
+        # Smooth snapping
+        steering = (self.last_steering * 0.15) + (target_steering * 0.85)
         self.last_steering = steering
 
         # 4. THROTTLE
         throttle = 1.0
         if self.state == "DODGE":
-            throttle = 0.5 # Slow slightly to ensure the turn clears the rock
-        elif abs(steering) > 0.3:
-            throttle = 0.8
+            throttle = 0.5 # Maintain speed to ensure we actually turn
+        elif abs(steering) > 0.4:
+            throttle = 0.7
 
         return {"throttle": throttle, "steering": steering}
 
