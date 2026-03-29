@@ -351,10 +351,10 @@ function updatePhysics(dt) {
                     closestRear = Math.min(closestRear, lastPayload[i].distance);
                 }
             });
-            if (closestRear < 3.5) {
+            if (closestRear < 5.5) {
                 rearBrake = true;
                 assistActive = true;
-                throttle = 0.0; // Prevent backing up into the rock
+                throttle = 0.0; // Slam Brakes! Prevent backing up into the rock
                 steering = manualSteering; // Let user steer to escape
             }
         }
