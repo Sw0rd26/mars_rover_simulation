@@ -20,10 +20,9 @@ dirLight.position.set(-50, 50, 50);
 dirLight.castShadow = true;
 scene.add(dirLight);
 
-// --- CELESTIAL BODIES (NIGHT SKY) ---
+// --- CELESTIAL ELEMENTS ---
 const skyGroup = new THREE.Group();
 scene.add(skyGroup);
-
 const starGeo = new THREE.BufferGeometry();
 const starPos = [];
 for(let i=0; i<800; i++) {
@@ -50,11 +49,10 @@ deimos.position.set(180, 150, -150);
 skyGroup.add(deimos);
 
 // --- DAY / NIGHT CYCLE ---
-let timeOfDay = 0.0; 
+let timeOfDay = 0.0;
 let targetColor = new THREE.Color(0x96321e);
 let targetIntensity = 0.8;
 let baseTemp = -40.0;
-
 function updateDayNightCycle(dt) {
     timeOfDay += dt;
     if (timeOfDay >= 90.0) timeOfDay = 0.0;
@@ -80,7 +78,7 @@ function updateDayNightCycle(dt) {
     deimos.position.applyAxisAngle(new THREE.Vector3(0, 1, 0), 0.02 * dt);
 }
 
-// --- TERRAIN & ROCKS ---
+// --- TERRAIN ---
 const terrainSize = 250;
 const geometry = new THREE.PlaneGeometry(terrainSize, terrainSize, 64, 64);
 geometry.rotateX(-Math.PI / 2);
@@ -120,7 +118,6 @@ for (let i = 0; i < 100; i++) {
     rocks.push(rock);
 }
 
-// Crater Boundary Wall
 const borderRadius = 120;
 for (let a = 0; a < Math.PI * 2; a += 0.05) {
     const rock = new THREE.Mesh(rockGeo, rockMat);
@@ -141,25 +138,21 @@ for (let a = 0; a < Math.PI * 2; a += 0.05) {
 const rover = new THREE.Group();
 rover.position.set(0, 5, 0);
 scene.add(rover);
-
 const bodyGeo = new THREE.BoxGeometry(1.8, 0.8, 2.5);
 const bodyMat = new THREE.MeshStandardMaterial({ color: 0xffd700 });
 const body = new THREE.Mesh(bodyGeo, bodyMat);
 body.position.y = 1.0;
 body.castShadow = true;
 rover.add(body);
-
 const antennaGeometry = new THREE.CylinderGeometry(0.05, 0.05, 1.5);
 const antennaMat = new THREE.MeshStandardMaterial({ color: 0xaaaaaa });
 const antenna = new THREE.Mesh(antennaGeometry, antennaMat);
 antenna.position.set(-0.4, 1.8, -0.4);
 rover.add(antenna);
-
 const dishGeo = new THREE.SphereGeometry(0.3, 16, 16);
 const dish = new THREE.Mesh(dishGeo, antennaMat);
 dish.position.y = 0.75;
 antenna.add(dish);
-
 const wheels = [];
 const wheelGeo = new THREE.CylinderGeometry(0.4, 0.4, 0.4, 16);
 wheelGeo.rotateZ(Math.PI / 2);
@@ -198,45 +191,32 @@ rays.forEach(() => {
     lidarLines.add(line);
 });
 
-// --- CONTROLS & STATE ---
-let throttle = 0.0;
-let steering = 0.0;
-let manualThrottle = 0.0;
-let manualSteering = 0.0;
-let aiThrottle = 0.0;
-let aiSteering = 0.0;
+// --- INPUTS & STATE ---
+let throttle = 0.0, steering = 0.0;
+let manualThrottle = 0.0, manualSteering = 0.0;
+let aiThrottle = 0.0, aiSteering = 0.0;
 let override = false;
-let autoSpeed = 4.0;
-let autoTurnSpeed = 7.0; // Responsive Turn Speed
+let autoSpeed = 4.0, autoTurnSpeed = 5.0; // Restored to Stable Turn Speed
 let lastPayload = [];
 
-// Environment Monitoring
 let currentpH = 7.7, currentTemp = -40.0, currentMoisture = 1.0;
 function updateEnvironmentStats(dt, payload) {
     if (payload.length === 0) return;
     let crowdedFactor = 0;
     payload.forEach(r => { if (r.distance < 12.0) crowdedFactor += (12.0 - r.distance); });
     let normalizedCrowd = Math.min(crowdedFactor / 150.0, 1.0); 
-    let targetpH = 7.7 + (normalizedCrowd * 0.8);
-    let targetTemp = baseTemp + (normalizedCrowd * 15.0);
-    let targetMoisture = 1.0 + (normalizedCrowd * 2.0);
+    let targetpH = 7.7 + (normalizedCrowd * 0.8), targetTemp = baseTemp + (normalizedCrowd * 15.0), targetMoisture = 1.0 + (normalizedCrowd * 2.0);
     const smoothRate = 1.2 * dt; 
-    currentpH += (targetpH - currentpH) * smoothRate;
-    currentTemp += (targetTemp - currentTemp) * smoothRate;
-    currentMoisture += (targetMoisture - currentMoisture) * smoothRate;
+    currentpH += (targetpH - currentpH) * smoothRate; currentTemp += (targetTemp - currentTemp) * smoothRate; currentMoisture += (targetMoisture - currentMoisture) * smoothRate;
     const statsEl = document.getElementById('envData');
-    if(statsEl) {
-        statsEl.innerHTML = `pH Seviyesi : ${currentpH.toFixed(2)}\nSıcaklık    : ${currentTemp.toFixed(1)}°C\nNem Oranı   : ${currentMoisture.toFixed(1)}%`;
-    }
+    if(statsEl) statsEl.innerHTML = `pH Seviyesi : ${currentpH.toFixed(2)}\nSıcaklık    : ${currentTemp.toFixed(1)}°C\nNem Oranı   : ${currentMoisture.toFixed(1)}%`;
 }
 
 document.addEventListener('keydown', (e) => {
     if (e.code === 'Space') override = true;
     if (override) {
-        if (e.code === 'KeyW') manualThrottle = 1.0;
-        if (e.code === 'KeyS') manualThrottle = -1.0;
-        if (e.code === 'KeyA') manualSteering = 1.0;
-        if (e.code === 'KeyD') manualSteering = -1.0;
+        if (e.code === 'KeyW') manualThrottle = 1.0; if (e.code === 'KeyS') manualThrottle = -1.0;
+        if (e.code === 'KeyA') manualSteering = 1.0; if (e.code === 'KeyD') manualSteering = -1.0;
     }
 });
 document.addEventListener('keyup', (e) => {
@@ -247,17 +227,12 @@ document.addEventListener('keyup', (e) => {
     }
 });
 
-// WEBSOCKET
 let ws;
 function connectWS() {
     const isLocal = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
     const wsUrl = isLocal ? 'ws://localhost:8000/ws' : 'wss://mars-rover-simulation.onrender.com/ws'; 
     ws = new WebSocket(wsUrl);
-    ws.onmessage = (event) => {
-        const data = JSON.parse(event.data);
-        aiThrottle = data.throttle;
-        aiSteering = -data.steering;
-    };
+    ws.onmessage = (event) => { const data = JSON.parse(event.data); aiThrottle = data.throttle; aiSteering = -data.steering; };
     ws.onclose = () => { setTimeout(connectWS, 1000); };
 }
 connectWS();
@@ -265,14 +240,16 @@ connectWS();
 const clock = new THREE.Clock();
 
 function updateCamera() {
-    const idealOffset = new THREE.Vector3(0, 10, -15).applyQuaternion(rover.quaternion).add(rover.position);
-    camera.position.lerp(idealOffset, 0.1);
+    // CLASSIC FOLLOW CAMERA (Snappy & Stable)
+    const idealOffset = new THREE.Vector3(0, 8, -12).applyQuaternion(rover.quaternion).add(rover.position);
+    camera.position.set(idealOffset.x, idealOffset.y, idealOffset.z);
+    
     const idealLook = new THREE.Vector3(0, 2, 5).applyQuaternion(rover.quaternion).add(rover.position);
     camera.lookAt(idealLook);
     skyGroup.position.copy(camera.position);
 }
 
-// --- CORE PHYSICS & ADAS BRAIN ---
+// --- STABLE STOP-AND-SPIN PHYSICS ---
 function updatePhysics(dt) {
     let assistActive = false;
     let rearBrake = false;
@@ -287,9 +264,7 @@ function updatePhysics(dt) {
 
     if (throttle !== 0 || steering !== 0) {
         let isBlocked = false;
-        let isFrontHazard = false;
-        let isRearHazard = false;
-        
+        let isHazard = false;
         const sign = Math.sign(throttle) || 1.0;
         const rDir = new THREE.Vector3(0, 0, 1).applyAxisAngle(new THREE.Vector3(0, 1, 0), rover.rotation.y).multiplyScalar(sign);
 
@@ -303,27 +278,19 @@ function updatePhysics(dt) {
             const origin = rover.position.clone().add(off);
             const hitTest = new THREE.Raycaster(origin, rDir);
             const hits = hitTest.intersectObjects(rocks);
-            
             if (hits.length > 0) {
                 const dist = hits[0].distance;
-                // DIVERGENT SENSORS
-                if (throttle > 0 && dist < 8.5) isFrontHazard = true;
-                if (throttle < 0 && dist < 2.5) isRearHazard = true; // User requested lower rear buffer
-                if (dist < 1.5) { isBlocked = true; break; }
+                if (throttle > 0 && dist < 4.5) isHazard = true; // Stable stop-and-spin trigger
+                if (throttle < 0 && dist < 2.2) { isHazard = true; rearBrake = true; } // Short rear buffer
+                if (dist < 1.0) { isBlocked = true; break; }
             }
         }
 
-        // Apply ADAS Overrule
-        if (isFrontHazard) {
+        if (isHazard) {
             assistActive = true;
-            // GLIDE: Just slow down enough to let AI steer us clear. Never stop.
-            throttle *= 0.3; 
+            // THE STABLE LOGIC: Stop the rover and force the AI's steering vector
+            throttle = 0; 
             if (override) steering = aiSteering; 
-        }
-        if (isRearHazard) {
-            assistActive = true;
-            rearBrake = true;
-            throttle = 0.0; // Stop immediately to prevent rear-end collision
         }
 
         if (!isBlocked) {
@@ -334,17 +301,15 @@ function updatePhysics(dt) {
         }
     }
 
-    // Terrain Sync
     const groundY = getGroundHeight(rover.position.x, rover.position.z);
     rover.position.y = groundY;
     const fwdY = getGroundHeight(rover.position.x + Math.sin(rover.rotation.y) * 2, rover.position.z + Math.cos(rover.rotation.y) * 2);
     const bwdY = getGroundHeight(rover.position.x - Math.sin(rover.rotation.y) * 2, rover.position.z - Math.cos(rover.rotation.y) * 2);
     rover.rotation.x = Math.atan2(bwdY - fwdY, 4.0);
 
-    // HUD Update
     let state = ws && ws.readyState === WebSocket.OPEN ? "Bağlandı" : "Bağlantı kesildi.";
     let hudText = `<h2>MARS ROVER SİSTEMİ</h2><p>Bağlantı: ${state}\nHareket: ${throttle.toFixed(2)}\nDönüş: ${(-steering).toFixed(2)}\nSürüş Sistemi: ${override ? 'Manuel (WASD)' : 'OTOPİLOT'}`;
-    if (assistActive && override) {
+    if (assistActive && override && override === true) {
         hudText += `<br><span style="color:#ff3333; font-weight:bold;">⚠️ KAZA ÖNLEYİCİ SİSTEM DEVREDE!</span>`;
         if (rearBrake) hudText += `<br><span style="color:#ffaa00;">Sistem aracın geriye doğru hareketini durdurdu.</span>`;
     }
@@ -356,7 +321,6 @@ function processSensorsAndNetwork(dt) {
     const origin = new THREE.Vector3();
     rover.getWorldPosition(origin);
     origin.y += 0.5;
-
     rays.forEach((ray, i) => {
         const line = lidarLines.children[i];
         const yawRad = THREE.MathUtils.degToRad(ray.yaw), pitchRad = THREE.MathUtils.degToRad(ray.pitch);
@@ -378,19 +342,14 @@ function processSensorsAndNetwork(dt) {
     });
     updateEnvironmentStats(dt, payloadAll);
     if (ws && ws.readyState === WebSocket.OPEN) {
-        if (clock.elapsedTime - lastSend > 0.1) {
-            ws.send(JSON.stringify({ lidar: payloadAI }));
-            lastSend = clock.elapsedTime;
-        }
+        if (clock.elapsedTime - lastSend > 0.1) { ws.send(JSON.stringify({ lidar: payloadAI })); lastSend = clock.elapsedTime; }
     }
 }
 
 function animate() {
     requestAnimationFrame(animate);
     const dt = clock.getDelta();
-    updateDayNightCycle(dt);
-    updatePhysics(dt);
-    processSensorsAndNetwork(dt);
+    updateDayNightCycle(dt); updatePhysics(dt); processSensorsAndNetwork(dt);
     wheels.forEach(w => w.rotation.x -= throttle * 10 * dt);
     antenna.rotation.y += 2 * dt;
     updateCamera();
