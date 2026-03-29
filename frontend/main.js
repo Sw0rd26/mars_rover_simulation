@@ -343,19 +343,20 @@ function updatePhysics(dt) {
             steering = aiSteering; // Force AI Dodge vector
         }
 
-        // ADAS: Rear Collision Avoidance (Parking Sensors)
-        if (throttle < 0 && lastPayload.length > 0) {
-            let closestRear = 15.0;
-            rays.forEach((ray, i) => {
-                if (Math.abs(ray.yaw) >= 135) {
-                    closestRear = Math.min(closestRear, lastPayload[i].distance);
-                }
-            });
-            if (closestRear < 1.0) {
+        // ADAS: Rear Collision Avoidance (High-Priority Direct Sensor)
+        if (throttle < 0) {
+            const rearOrigin = rover.position.clone();
+            rearOrigin.y += 1.0;
+            const rearDir = new THREE.Vector3(0, 0, -1).applyAxisAngle(new THREE.Vector3(0, 1, 0), rover.rotation.y);
+            const rearRay = new THREE.Raycaster(rearOrigin, rearDir, 0, 10);
+            const rearHits = rearRay.intersectObjects(rocks);
+            
+            // Trigger emergency brake if a rock is within 2.0 meters of the rear bumper
+            if (rearHits.length > 0 && rearHits[0].distance < 2.0) {
                 rearBrake = true;
                 assistActive = true;
-                throttle = 0.0; // Slam Brakes! Prevent backing up into the rock
-                steering = manualSteering; // Let user steer to escape
+                throttle = 0.0; // Slam Brakes!
+                steering = manualSteering; 
             }
         }
     } else {
