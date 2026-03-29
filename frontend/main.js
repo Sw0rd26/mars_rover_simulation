@@ -351,7 +351,7 @@ function updatePhysics(dt) {
                     closestRear = Math.min(closestRear, lastPayload[i].distance);
                 }
             });
-            if (closestRear < 2.2) {
+            if (closestRear < 1.0) {
                 rearBrake = true;
                 assistActive = true;
                 throttle = 0.0; // Slam Brakes! Prevent backing up into the rock
