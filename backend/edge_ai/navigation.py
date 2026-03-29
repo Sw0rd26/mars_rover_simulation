@@ -11,20 +11,22 @@ class EdgeAIAgent:
         if not lidar_data:
             return {"throttle": 0.0, "steering": 0.0}
 
-        # --- HEDGEHOG-CLASS DECISIVE NAVIGATION ---
-        SAFE_CORRIDOR = 14.0      # Path depth required to 'Glide'
-        DANGER_ZONE = 11.0        # Dodge trigger distance
-        MIN_GAP_WIDTH = 3         # 30-degree minimum width for a safe sector
+        # --- TUNED HEDGEHOG-CLASS DECISIVE NAVIGATION ---
+        # Increased sensitivity to ensure the AI reacts BEFORE the frontend ADAS slows it down.
+        SAFE_CORRIDOR = 15.0      # Clear path depth
+        DANGER_ZONE = 12.5        # Proactive trigger (up from 11.0)
+        FRONT_SWEEP = 45          # Wide focal cone (Total 90 degrees)
+        MIN_GAP_WIDTH = 3         # Sector width requirement
         
         all_rays = lidar_data
-        # Focal front cone (30 degrees)
-        front_dist = min([r['distance'] for r in all_rays if abs(r['angle']) <= 15] + [15.0])
+        # Broad focal cone to prevent "missing" side-rocks
+        front_dist = min([r['distance'] for r in all_rays if abs(r['angle']) <= FRONT_SWEEP] + [15.0])
 
         # 1. STATE MACHINE: Irreversible Commitment
         if self.state == "DODGE":
             self.commit_timer += 1
-            # Only exit if the way ahead is TRULY clear and we have committed for a min time
-            if front_dist > 13.5 and self.commit_timer > 20: 
+            # Maintain commitment until the path is COMPLETELY clear
+            if front_dist > 14.5 and self.commit_timer > 20: 
                 self.state = "FORWARD"
                 self.locked_side = 0
                 self.commit_timer = 0
@@ -37,10 +39,10 @@ class EdgeAIAgent:
                 right_space = sum(r['distance'] for r in all_rays if 0 < r['angle'] <= 90)
                 self.locked_side = 1 if right_space > left_space else -1
 
-        # 2. PATHFINDING: The "One-Way Gap" Search
+        # 2. PATHFINDING: The Decisive Escape
         best_angle = 0
         if self.state == "DODGE":
-            # REJECT any path on the 'wrong' side. This stops the "focusing" vibration.
+            # ONLY search for gaps on the locked side
             side_rays = [r for r in all_rays if (r['angle'] * self.locked_side) > 0]
             
             gaps = []
@@ -53,25 +55,32 @@ class EdgeAIAgent:
             if len(curr_gap) >= MIN_GAP_WIDTH: gaps.append(curr_gap)
             
             if gaps:
-                # Aim for the center of the best gap on our chosen side
+                # Target the safest gap on the chosen side
                 best_gap = min(gaps, key=lambda g: abs(sum(r['angle'] for r in g)/len(g)))
-                best_angle = sum(r['angle'] for r in best_gap) / len(best_gap)
+                raw_angle = sum(r['angle'] for r in best_gap) / len(best_gap)
+                
+                # STEERING AMPLIFICATION:
+                # If the AI says turn 15 degrees, we turn 60 to be DECISIVE.
+                best_angle = raw_angle
+                if abs(best_angle) < 60:
+                    best_angle = 60 * self.locked_side
             else:
-                # If no clear gaps, perform a hard evasive maneuver to the safe side
-                best_angle = 120 * self.locked_side
+                # No clear safe path? Maximum defensive pivot
+                best_angle = 130 * self.locked_side
             
-            # DECISIVE: Maintain 50% power during maneuvers (Glide)
+            # Momentum: 50% Speed
             throttle = 0.5 
         else:
-            best_angle = 0 # Forward cruise
-            throttle = 1.0
+            best_angle = 0
+            # Adaptive speed control: slow slightly if even a little turned
+            throttle = 1.0 if abs(self.last_steering) < 0.2 else 0.8
             
         # 3. STEERING 
         target_steering = best_angle / 90.0
-        target_steering = max(-1.1, min(1.1, target_steering))
+        target_steering = max(-1.4, min(1.4, target_steering))
         
-        # Smooth snapping
-        steering = (self.last_steering * 0.15) + (target_steering * 0.85)
+        # Fast Snapping: 90% immediate response
+        steering = (self.last_steering * 0.1) + (target_steering * 0.9)
         self.last_steering = steering
 
         return {"throttle": throttle, "steering": steering}
@@ -81,3 +90,4 @@ agent = EdgeAIAgent()
 
 def calculate_drive_command(lidar_data: list) -> dict:
     return agent.calculate_drive_command(lidar_data)
+
