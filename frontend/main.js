@@ -377,7 +377,7 @@ function updatePhysics(dt) {
         }
 
         // Apply ADAS Intervention (Absolute Priority during Hazards)
-        if isSafetyTriggered && override) {
+        if (isSafetyTriggered && override) {
             assistActive = true;
             
             if (throttle < 0) {
