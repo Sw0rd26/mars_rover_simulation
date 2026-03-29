@@ -123,7 +123,7 @@ for (let a = 0; a < Math.PI * 2; a += 0.05) {
     const rock = new THREE.Mesh(rockGeo, rockMat);
     const rx = Math.sin(a) * borderRadius;
     const rz = Math.cos(a) * borderRadius;
-    const scale = Math.random() * 4 + 7.0; 
+    const scale = Math.random() * 5 + 10.0; 
     const ry = getGroundHeight(rx, rz);
     rock.position.set(rx, ry + scale * 0.4, rz);
     rock.scale.set(scale, scale * 2.0, scale);
@@ -157,11 +157,7 @@ const wheels = [];
 const wheelGeo = new THREE.CylinderGeometry(0.4, 0.4, 0.4, 16);
 wheelGeo.rotateZ(Math.PI / 2);
 const wheelMat = new THREE.MeshStandardMaterial({ color: 0x222222 });
-const wheelOffsets = [
-    [-1.2, 0.4, 1.3], [1.2, 0.4, 1.3],
-    [-1.4, 0.4, 0], [1.4, 0.4, 0],
-    [-1.2, 0.4, -1.3], [1.2, 0.4, -1.3]
-];
+const wheelOffsets = [[-1.2, 0.4, 1.3], [1.2, 0.4, 1.3], [-1.4, 0.4, 0], [1.4, 0.4, 0], [-1.2, 0.4, -1.3], [1.2, 0.4, -1.3]];
 for (let pos of wheelOffsets) {
     const w = new THREE.Mesh(wheelGeo, wheelMat);
     w.position.set(pos[0], pos[1], pos[2]);
@@ -170,7 +166,7 @@ for (let pos of wheelOffsets) {
     wheels.push(w);
 }
 
-// --- LIDAR ---
+// --- 3D SPHERICAL LIDAR (HEDGEHOG MODE) ---
 const raycaster = new THREE.Raycaster();
 const lidarLines = new THREE.Group();
 rover.add(lidarLines);
@@ -180,39 +176,35 @@ const elevations = [0, 15, 30];
 elevations.forEach(pitch => {
     for (let yaw = -170; yaw <= 180; yaw += 10) { rays.push({ yaw: yaw, pitch: pitch }); }
 });
-const materialSafe = new THREE.LineBasicMaterial({ color: 0x00ff00 });
-const materialHit = new THREE.LineBasicMaterial({ color: 0xff0000 });
+const matSafe = new THREE.LineBasicMaterial({ color: 0x00ff00 }), matHit = new THREE.LineBasicMaterial({ color: 0xff0000 });
 rays.forEach(() => {
-    const lg = new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(0, 0, 0), new THREE.Vector3(0, 0, lidarRange)]);
-    const line = new THREE.Line(lg, materialSafe);
+    const line = new THREE.Line(new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(0,0,0), new THREE.Vector3(0,0,lidarRange)]), matSafe);
     line.position.y = 0.5;
     lidarLines.add(line);
 });
 
-// --- INPUTS & STATE ---
+// --- INPUTS & AI STATE ---
 let throttle = 0.0, steering = 0.0, manualThrottle = 0.0, manualSteering = 0.0, aiThrottle = 0.0, aiSteering = 0.0;
 let override = false, autoSpeed = 4.0, autoTurnSpeed = 6.0;
+let lastSend = 0;
 
-function updateEnvironmentStats(dt, payload) {
-    if (payload.length === 0) return;
-    let crowdedFactor = 0;
-    payload.forEach(r => { if (r.distance < 12.0) crowdedFactor += (12.0 - r.distance); });
-    let normalizedCrowd = Math.min(crowdedFactor / 150.0, 1.0); 
-    let targetpH = 7.7 + (normalizedCrowd * 0.8), targetTemp = baseTemp + (normalizedCrowd * 15.0), targetMoisture = 1.0 + (normalizedCrowd * 2.0);
-    const smoothRate = 1.2 * dt; 
-    currentpH += (targetpH - currentpH) * smoothRate; currentTemp += (targetTemp - currentTemp) * smoothRate; currentMoisture += (targetMoisture - currentMoisture) * smoothRate;
+function updateEnvironmentStats(dt, payloadAll) {
+    if (payloadAll.length === 0) return;
+    let crowded = 0;
+    payloadAll.forEach(r => { if (r.distance < 12.0) crowded += (12.0 - r.distance); });
+    let norm = Math.min(crowded / 150.0, 1.0); 
     const statsEl = document.getElementById('envData');
-    if(statsEl) statsEl.innerHTML = `pH Seviyesi : ${currentpH.toFixed(2)}\nSıcaklık    : ${currentTemp.toFixed(1)}°C\nNem Oranı   : ${currentMoisture.toFixed(1)}%`;
+    if(statsEl) statsEl.innerHTML = `pH: ${(7.7 + norm*0.8).toFixed(2)} | Temp: ${(baseTemp + norm*15).toFixed(1)}°C | Humid: ${(1.0 + norm*2).toFixed(1)}%`;
 }
 
-document.addEventListener('keydown', (e) => {
+document.addEventListener('keydown', e => {
     if (e.code === 'Space') override = true;
     if (override) {
         if (e.code === 'KeyW') manualThrottle = 1.0; if (e.code === 'KeyS') manualThrottle = -1.0;
         if (e.code === 'KeyA') manualSteering = 1.0; if (e.code === 'KeyD') manualSteering = -1.0;
     }
 });
-document.addEventListener('keyup', (e) => {
+document.addEventListener('keyup', e => {
     if (e.code === 'Space') { override = false; manualThrottle = 0; manualSteering = 0; }
     if (override) {
         if (e.code === 'KeyW' || e.code === 'KeyS') manualThrottle = 0;
@@ -225,100 +217,101 @@ function connectWS() {
     const isLocal = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
     const wsUrl = isLocal ? 'ws://localhost:8000/ws' : 'wss://mars-rover-simulation.onrender.com/ws'; 
     ws = new WebSocket(wsUrl);
-    ws.onmessage = (event) => { const data = JSON.parse(event.data); aiThrottle = data.throttle; aiSteering = -data.steering; };
-    ws.onclose = () => { setTimeout(connectWS, 1000); };
+    ws.onmessage = e => { const d = JSON.parse(e.data); aiThrottle = d.throttle; aiSteering = -d.steering; };
+    ws.onclose = () => setTimeout(connectWS, 1000);
 }
 connectWS();
 
 const clock = new THREE.Clock();
 
 function updateCamera() {
-    // SNAPPY CLASSIC CAMERA
-    const offset = new THREE.Vector3(0, 8, -12).applyQuaternion(rover.quaternion).add(rover.position);
-    camera.position.set(offset.x, offset.y, offset.z);
-    
-    const target = new THREE.Vector3(0, 2, 5).applyQuaternion(rover.quaternion).add(rover.position);
-    camera.lookAt(target);
+    // SNAPPY CLASSIC CAMERA (No Lerp Jitter)
+    const pos = new THREE.Vector3(0, 8, -12).applyQuaternion(rover.quaternion).add(rover.position);
+    camera.position.set(pos.x, pos.y, pos.z);
+    const look = new THREE.Vector3(0, 2, 5).applyQuaternion(rover.quaternion).add(rover.position);
+    camera.lookAt(look);
     skyGroup.position.copy(camera.position);
 }
 
-// --- DIVERGENT GLIDE ADAS ---
+// --- GLIDE ADAS ---
 function updatePhysics(dt) {
-    let assistActive = false, rearBrake = false;
+    let assist = false, brake = false;
     if (override) { throttle = manualThrottle; steering = manualSteering; } 
     else { throttle = aiThrottle; steering = aiSteering; }
 
     if (throttle !== 0 || steering !== 0) {
-        let isBlocked = false, isFrontHazard = false, isRearHazard = false;
+        let block = false, hazardF = false, hazardR = false;
         const sign = Math.sign(throttle) || 1.0;
         const rDir = new THREE.Vector3(0, 0, 1).applyAxisAngle(new THREE.Vector3(0, 1, 0), rover.rotation.y).multiplyScalar(sign);
-        const offsets = [new THREE.Vector3(0, 0.8, 0), new THREE.Vector3(0.7, 0.8, 0).applyAxisAngle(new THREE.Vector3(0, 1, 0), rover.rotation.y), new THREE.Vector3(-0.7, 0.8, 0).applyAxisAngle(new THREE.Vector3(0, 1, 0), rover.rotation.y)];
+        const offs = [new THREE.Vector3(0, 0.8, 0), new THREE.Vector3(0.7, 0.8, 0).applyAxisAngle(new THREE.Vector3(0, 1, 0), rover.rotation.y), new THREE.Vector3(-0.7, 0.8, 0).applyAxisAngle(new THREE.Vector3(0, 1, 0), rover.rotation.y)];
         
-        for (let off of offsets) {
-            const origin = rover.position.clone().add(off);
-            const hitTest = new THREE.Raycaster(origin, rDir);
+        for (let off of offs) {
+            const hitTest = new THREE.Raycaster(rover.position.clone().add(off), rDir);
             const hits = hitTest.intersectObjects(rocks);
             if (hits.length > 0) {
-                const dist = hits[0].distance;
-                if (throttle > 0 && dist < 8.0) isFrontHazard = true;
-                if (throttle < 0 && dist < 2.5) isRearHazard = true;
-                if (dist < 1.0) { isBlocked = true; break; }
+                const d = hits[0].distance;
+                if (throttle > 0 && d < 8.0) hazardF = true;
+                if (throttle < 0 && d < 2.5) hazardR = true;
+                if (d < 1.0) { block = true; break; }
             }
         }
 
-        if (isFrontHazard) {
-            assistActive = true;
-            // GLIDE: Slow down but KEEP MOVING so the wheels can steer us.
-            throttle *= 0.4; 
-            if (override) steering = aiSteering; 
-        }
-        if (isRearHazard) {
-            assistActive = true; rearBrake = true;
-            throttle = 0.0; // Stop immediately to prevent rear-end collision
-        }
+        if (hazardF) { assist = true; throttle *= 0.5; if (override) steering = aiSteering; }
+        if (hazardR) { assist = true; brake = true; throttle = 0.0; }
 
-        if (!isBlocked) {
+        if (!block) {
             rover.rotation.y += steering * autoTurnSpeed * dt;
-            const moveDist = throttle * autoSpeed * dt;
             const forward = new THREE.Vector3(0, 0, 1).applyAxisAngle(new THREE.Vector3(0, 1, 0), rover.rotation.y);
-            rover.position.addScaledVector(forward, moveDist);
+            rover.position.addScaledVector(forward, throttle * autoSpeed * dt);
         }
     }
 
-    const groundY = getGroundHeight(rover.position.x, rover.position.z);
-    rover.position.y = groundY;
-    const fwdY = getGroundHeight(rover.position.x + Math.sin(rover.rotation.y) * 2, rover.position.z + Math.cos(rover.rotation.y) * 2);
-    const bwdY = getGroundHeight(rover.position.x - Math.sin(rover.rotation.y) * 2, rover.position.z - Math.cos(rover.rotation.y) * 2);
-    rover.rotation.x = Math.atan2(bwdY - fwdY, 4.0);
+    rover.position.y = getGroundHeight(rover.position.x, rover.position.z);
+    const fY = getGroundHeight(rover.position.x + Math.sin(rover.rotation.y)*2, rover.position.z + Math.cos(rover.rotation.y)*2);
+    const bY = getGroundHeight(rover.position.x - Math.sin(rover.rotation.y)*2, rover.position.z - Math.cos(rover.rotation.y)*2);
+    rover.rotation.x = Math.atan2(bY - fY, 4.0);
 
-    let hudText = `<h2>MARS ROVER SİSTEMİ</h2>Hareket: ${throttle.toFixed(2)} | Dönüş: ${(-steering).toFixed(2)}\nSürüş: ${override ? 'MANUEL' : 'OTOPİLOT'}`;
-    if (assistActive && override) {
-        hudText += `<br><span style="color:#ff3333;">⚠️ GÜVENLİK SİSTEMİ DEVREDE! ${rearBrake ? '(ARKA BRAK)' : '(ÖN MANEVRA)'}</span>`;
-    }
-    document.getElementById('hud').innerHTML = hudText;
+    let hud = `<h2>MARS ROVER</h2>Hız: ${throttle.toFixed(2)} | Dönüş: ${(-steering).toFixed(2)}\n${override ? 'MANUEL' : 'OTOPİLOT'}`;
+    if (assist && override) hud += `<br><span style="color:#ff3333;">⚠️ ADAS AKTİF ${brake ? '(BRAK)' : '(DODGE)'}</span>`;
+    document.getElementById('hud').innerHTML = hud;
 }
 
 function processSensorsAndNetwork(dt) {
-    const pAll = [], pAI = [];
+    const pAll = [];
     const origin = rover.position.clone(); origin.y += 0.5;
+    
+    // VOLUMETRIC SQUASH: Map 3D Rings to a 2D AI Array
+    const squash = {};
+
     rays.forEach((ray, i) => {
         const line = lidarLines.children[i];
-        const yawRad = THREE.MathUtils.degToRad(ray.yaw), pitchRad = THREE.MathUtils.degToRad(ray.pitch);
-        const lDir = new THREE.Vector3(Math.sin(yawRad) * Math.cos(pitchRad), Math.sin(pitchRad), Math.cos(yawRad) * Math.cos(pitchRad)).normalize();
+        const yawR = THREE.MathUtils.degToRad(ray.yaw), pitchR = THREE.MathUtils.degToRad(ray.pitch);
+        const lDir = new THREE.Vector3(Math.sin(yawR) * Math.cos(pitchR), Math.sin(pitchR), Math.cos(yawR) * Math.cos(pitchR)).normalize();
         const wDir = lDir.applyQuaternion(rover.quaternion);
+        
         raycaster.set(origin, wDir);
         const hits = raycaster.intersectObjects(rocks);
-        line.rotation.y = yawRad; line.rotation.x = -pitchRad; 
+        line.rotation.y = yawR; line.rotation.x = -pitchR; 
+        
         let dist = lidarRange, hit = false;
         if (hits.length > 0 && hits[0].distance < lidarRange) {
             dist = hits[0].distance; hit = true;
-            line.material = materialHit; line.scale.z = dist / lidarRange;
+            line.material = matHit; line.scale.z = dist / lidarRange;
         } else {
-            line.material = materialSafe; line.scale.z = 1.0;
+            line.material = matSafe; line.scale.z = 1.0;
         }
-        const node = { angle: ray.yaw, distance: dist, hit: hit, pitch: ray.pitch };
-        pAll.push(node); if (ray.pitch === 0) pAI.push(node);
+        
+        pAll.push({ angle: ray.yaw, distance: dist, hit: hit, pitch: ray.pitch });
+        
+        // --- THE MAGIC BRIDGE: Squashing 108 rays into a 36-ray 2D cloud ---
+        // For every yaw angle, the AI only cares about the ABSOLUTE CLOSEST rock (any height!)
+        if (!squash[ray.yaw] || dist < squash[ray.yaw]) {
+            squash[ray.yaw] = dist;
+        }
     });
+
+    const pAI = Object.keys(squash).map(yaw => ({ angle: parseFloat(yaw), distance: squash[yaw] }));
+
     updateEnvironmentStats(dt, pAll);
     if (ws && ws.readyState === WebSocket.OPEN && clock.elapsedTime - lastSend > 0.1) {
         ws.send(JSON.stringify({ lidar: pAI })); lastSend = clock.elapsedTime;
@@ -328,9 +321,7 @@ function processSensorsAndNetwork(dt) {
 function animate() {
     requestAnimationFrame(animate);
     const dt = clock.getDelta();
-    updateDayNightCycle(dt); 
-    updatePhysics(dt); 
-    processSensorsAndNetwork(dt);
+    updateDayNightCycle(dt); updatePhysics(dt); processSensorsAndNetwork(dt);
     wheels.forEach(w => w.rotation.x -= throttle * 10 * dt);
     antenna.rotation.y += 2 * dt;
     updateCamera();
