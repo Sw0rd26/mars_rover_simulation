@@ -232,8 +232,8 @@ let manualSteering = 0.0;
 let aiThrottle = 0.0;
 let aiSteering = 0.0;
 let override = false;
-let autoSpeed = 6.0;
-let autoTurnSpeed = 4.0;
+let autoSpeed = 4.0;
+let autoTurnSpeed = 3.0;
 let lastPayload = [];
 
 // --- ENVIRONMENT STATS ---
@@ -351,7 +351,7 @@ function updatePhysics(dt) {
                     closestRear = Math.min(closestRear, lastPayload[i].distance);
                 }
             });
-            if (closestRear < 5.5) {
+            if (closestRear < 2.2) {
                 rearBrake = true;
                 assistActive = true;
                 throttle = 0.0; // Slam Brakes! Prevent backing up into the rock
