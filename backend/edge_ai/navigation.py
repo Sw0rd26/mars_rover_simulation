@@ -18,8 +18,8 @@ class EdgeAIAgent:
             front_distance = min([r['distance'] for r in lidar_data if abs(r['angle']) <= 15] + [15.0])
             
             # Stop turning the exact moment the physical path directly in front is clear!
-            # Increased clear opening threshold to 12.0 meters (huge range!)
-            if front_distance > 12.0 or self.timer > 50:
+            # Increased clear opening threshold to 14.5 meters for aggressive clearance
+            if front_distance > 14.5 or self.timer > 60:
                 self.state = "FORWARD"
                 
             return {"throttle": 0.0, "steering": self.turn_dir}
@@ -30,8 +30,8 @@ class EdgeAIAgent:
             # Look at objects directly in front of the rover
             front_distance = min([r['distance'] for r in lidar_data if abs(r['angle']) <= 20] + [15.0])
             
-            # INCREASED RANGE: Trigger turn when 8.5 meters away! (Reduced from 9.0 to avoid jitter)
-            if front_distance < 8.5:
+            # INCREASED RANGE: Trigger turn when 11 meters away! (Up from 8.5)
+            if front_distance < 11.0:
                 # Look broadly at both sides (FRONT ONLY) to definitively pick the most open path
                 left_space = sum(r['distance'] for r in lidar_data if r['angle'] < 0 and r['angle'] >= -90)
                 right_space = sum(r['distance'] for r in lidar_data if r['angle'] > 0 and r['angle'] <= 90)
